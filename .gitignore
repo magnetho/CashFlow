@@ -43,6 +43,10 @@ ScaffoldingReadMe.txt
 ~$*
 *~
 CodeCoverage/
+.dotnet-home/
+.docker-config/
+.vs/
+.idea/
 
 # MSBuild Binary and Structured Log
 *.binlog

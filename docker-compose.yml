@@ -1,0 +1,114 @@
+name: cashflow
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cashflow}
+      POSTGRES_USER: ${POSTGRES_USER:-cashflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cashflow_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  mongo-init:
+    image: mongo:8.0
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        mongosh --host mongo:27017 --eval
+        "try { rs.status() } catch (error) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}) }"
+    restart: "no"
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-cashflow}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-cashflow_dev}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  cashflow-api:
+    build:
+      context: .
+      dockerfile: src/CashFlow.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__ApplyMigrationsOnStartup: "true"
+      ConnectionStrings__PostgreSql: Host=postgres;Port=5432;Database=${POSTGRES_DB:-cashflow};Username=${POSTGRES_USER:-cashflow};Password=${POSTGRES_PASSWORD:-cashflow_dev}
+      MongoDb__ConnectionString: mongodb://mongo:27017/?replicaSet=rs0
+      MongoDb__DatabaseName: cashflow
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-cashflow}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:-cashflow_dev}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cashflow-worker:
+    build:
+      context: .
+      dockerfile: src/CashFlow.Worker/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      Database__ApplyMigrationsOnStartup: "true"
+      ConnectionStrings__PostgreSql: Host=postgres;Port=5432;Database=${POSTGRES_DB:-cashflow};Username=${POSTGRES_USER:-cashflow};Password=${POSTGRES_PASSWORD:-cashflow_dev}
+      MongoDb__ConnectionString: mongodb://mongo:27017/?replicaSet=rs0
+      MongoDb__DatabaseName: cashflow
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_DEFAULT_USER:-cashflow}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS:-cashflow_dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  mongo-data:
+  rabbitmq-data:

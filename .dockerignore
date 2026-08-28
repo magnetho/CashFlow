@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.dotnet-home/
+.git/
+.vs/
+.idea/
+TestResults/
+CodeCoverage/
