@@ -1,6 +1,6 @@
 # Cash Flow Challenge
 
-Sistema de fluxo de caixa construído com .NET 10, Clean Architecture, DDD, CQRS e processamento assíncrono resiliente. O sistema foi desenvolvido tendo em vista uma simplicidade no mvp porem focado em demostrar varias ferramentas, frameworks e serviços. Com o proposito de demostrar alguns dos conhecimentos adquiridos ao longo da carreira profissional.
+Sistema de fluxo de caixa construído com .NET 10, Clean Architecture, DDD, CQRS e processamento assíncrono resiliente. O projeto mantém um MVP simples, mas demonstra, de maneira justificada, práticas, frameworks e serviços utilizados em sistemas distribuídos.
 
 ## Arquitetura
 
@@ -29,10 +29,14 @@ O SDK utilizado pelo repositório está fixado em `global.json`.
 
 ## Executar com Docker
 
-Opcionalmente, copie `.env.example` para `.env` e altere as credenciais locais.
+Opcionalmente, copie `.env.example` para `.env` e altere as credenciais locais:
 
-```bash
-docker compose up --build -d
+```powershell
+Copy-Item .env.example .env
+```
+
+```powershell
+docker compose up -d --build
 ```
 
 Serviços disponíveis:
@@ -47,23 +51,34 @@ Serviços disponíveis:
 | RabbitMQ | `localhost:5672` |
 | RabbitMQ Management | `http://localhost:15672` |
 
+As credenciais padrão do RabbitMQ Management são `cashflow` / `cashflow_dev` e podem ser alteradas no `.env`.
+
 Verificação básica da API:
 
-```bash
-curl http://localhost:8080/health
+```powershell
+Invoke-RestMethod http://localhost:8080/health
 ```
 
 O health check verifica PostgreSQL, MongoDB e RabbitMQ e retorna `503` quando alguma dependência está indisponível.
 
 Criação de um lançamento:
 
-```bash
-curl -X POST http://localhost:8080/api/v1/cash-entries \
-  -H "Content-Type: application/json" \
-  -d '{"type":"credit","amount":150.50,"description":"Product sale","occurredAt":"2026-08-27T14:30:00-03:00"}'
+```powershell
+$body = @{
+  type = "credit"
+  amount = 150.50
+  description = "Venda de produto"
+  occurredAt = "2026-08-27T14:30:00-03:00"
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/v1/cash-entries `
+  -ContentType "application/json" `
+  -Body $body
 ```
 
-`description` é obrigatória, tem entre 3 e 200 caracteres e é normalizada removendo espaços no início e no final.
+`description` é obrigatória, tem entre 3 e 200 caracteres e é normalizada removendo espaços no início e no final. `occurredAt` também é obrigatório, deve ser uma data válida com offset e não pode estar no futuro.
 
 ## Endpoints
 
@@ -77,7 +92,7 @@ curl -X POST http://localhost:8080/api/v1/cash-entries \
 
 Para encerrar os serviços preservando os dados:
 
-```bash
+```powershell
 docker compose down
 ```
 
@@ -85,7 +100,7 @@ docker compose down
 
 Inicie a infraestrutura e, em terminais separados, execute:
 
-```bash
+```powershell
 docker compose up -d postgres mongo mongo-init rabbitmq
 dotnet run --project src/CashFlow.Api
 dotnet run --project src/CashFlow.Worker
@@ -93,7 +108,7 @@ dotnet run --project src/CashFlow.Worker
 
 ## Compilar e testar
 
-```bash
+```powershell
 dotnet restore
 dotnet tool restore
 dotnet build --no-restore
@@ -102,12 +117,12 @@ dotnet test --no-build
 
 ## Migrations
 
-A API aplica migrations automaticamente no ambiente de desenvolvimento. Para gerenciá-las manualmente:
+API e Worker aplicam migrations automaticamente no ambiente de desenvolvimento. Para gerenciá-las manualmente:
 
-```bash
+```powershell
 dotnet tool restore
-dotnet tool run dotnet-ef database update \
-  --project src/CashFlow.Infrastructure \
+dotnet tool run dotnet-ef database update `
+  --project src/CashFlow.Infrastructure `
   --startup-project src/CashFlow.Api
 ```
 
@@ -115,11 +130,17 @@ Testes de integração utilizam PostgreSQL e MongoDB reais via Testcontainers e 
 
 ## Teste de carga
 
-Com a aplicação no ar, execute k6 via Docker:
+Com a aplicação no ar, abra o PowerShell na raiz `C:\Projects\CashFlow` e execute o k6 via Docker:
 
-```bash
-docker run --rm -i grafana/k6 run -e BASE_URL=http://host.docker.internal:8080 - < performance/k6/cash-entries.js
+```powershell
+docker run --rm `
+  -v "$($PWD.Path)\performance\k6:/scripts:ro" `
+  grafana/k6 run `
+  -e BASE_URL=http://host.docker.internal:8080 `
+  /scripts/cash-entries.js
 ```
+
+O `docker run` cria um container temporário fora do Compose. A opção `--rm` remove esse container automaticamente quando o teste termina. Para uma execução curta, acrescente `-e DURATION=10s` antes do caminho do script.
 
 O cenário envia 50 requisições por segundo durante 60 segundos e exige erro abaixo de 5%, p95 abaixo de 500 ms e p99 abaixo de 1 segundo. Falha HTTP é diferente do atraso esperado da consistência eventual.
 
@@ -178,7 +199,7 @@ As credenciais padrão são exclusivamente para desenvolvimento local. Não deve
 
 ## Estado atual
 
-Já estão disponíveis a fundação, o modelo de domínio, a criação de lançamentos, a persistência PostgreSQL, o Transactional Outbox, a publicação confirmada no RabbitMQ, o consumidor idempotente, a Inbox transacional e a projeção diária no MongoDB. A API oferece `POST /api/v1/cash-entries` e `GET /api/v1/daily-balances/{date}`.
+A solução está funcional de ponta a ponta. A API permite criar, consultar e listar lançamentos, consultar o consolidado diário, verificar a saúde das dependências e explorar os contratos pela documentação Scalar. PostgreSQL, Outbox, RabbitMQ, Worker, Inbox e MongoDB compõem o fluxo assíncrono de consolidação.
 
 O consolidado é eventualmente consistente: uma resposta `201 Created` confirma a gravação no PostgreSQL, mas a projeção pode levar um pequeno intervalo para refletir o lançamento. O Worker somente confirma a mensagem ao RabbitMQ depois do commit da transação que atualiza o saldo e registra o `EventId` na Inbox.
 
@@ -186,7 +207,7 @@ O consolidado é eventualmente consistente: uma resposta `201 Created` confirma 
 
 Para demonstrar a independência da escrita:
 
-```bash
+```powershell
 docker compose stop cashflow-worker rabbitmq
 # faça POSTs: eles continuam confirmados no PostgreSQL e pendentes no Outbox
 docker compose start rabbitmq cashflow-worker

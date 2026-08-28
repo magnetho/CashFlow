@@ -41,6 +41,7 @@ public static class DependencyInjection
         services.AddScoped<IDailyBalanceProjector, DailyBalanceProjector>();
         services.AddOptions<RabbitMqOptions>()
             .Bind(configuration.GetSection(RabbitMqOptions.SectionName));
+        services.AddSingleton<IRabbitMqTopology, RabbitMqTopology>();
 
         return services;
     }

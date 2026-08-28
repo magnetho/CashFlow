@@ -11,6 +11,7 @@ namespace CashFlow.Infrastructure.Messaging.RabbitMQ;
 
 internal sealed class RabbitMqIntegrationEventConsumer(
     IOptions<RabbitMqOptions> options,
+    IRabbitMqTopology topology,
     IServiceScopeFactory scopeFactory,
     ILogger<RabbitMqIntegrationEventConsumer> logger) : IIntegrationEventConsumer
 {
@@ -39,7 +40,7 @@ internal sealed class RabbitMqIntegrationEventConsumer(
         await using var channel = await connection.CreateChannelAsync(
             cancellationToken: cancellationToken);
 
-        await DeclareTopologyAsync(channel, cancellationToken);
+        await topology.DeclareAsync(channel, cancellationToken);
         await channel.BasicQosAsync(
             prefetchSize: 0,
             prefetchCount: 20,
@@ -125,52 +126,5 @@ internal sealed class RabbitMqIntegrationEventConsumer(
             cancellationToken);
 
         await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-    }
-
-    private async Task DeclareTopologyAsync(
-        IChannel channel,
-        CancellationToken cancellationToken)
-    {
-        await channel.ExchangeDeclareAsync(
-            _options.Exchange,
-            ExchangeType.Topic,
-            durable: true,
-            autoDelete: false,
-            cancellationToken: cancellationToken);
-        await channel.ExchangeDeclareAsync(
-            _options.DeadLetterExchange,
-            ExchangeType.Direct,
-            durable: true,
-            autoDelete: false,
-            cancellationToken: cancellationToken);
-        await channel.QueueDeclareAsync(
-            _options.DeadLetterQueue,
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            cancellationToken: cancellationToken);
-        await channel.QueueBindAsync(
-            _options.DeadLetterQueue,
-            _options.DeadLetterExchange,
-            _options.RoutingKey,
-            cancellationToken: cancellationToken);
-
-        var arguments = new Dictionary<string, object?>
-        {
-            ["x-dead-letter-exchange"] = _options.DeadLetterExchange,
-            ["x-dead-letter-routing-key"] = _options.RoutingKey
-        };
-        await channel.QueueDeclareAsync(
-            _options.Queue,
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments,
-            cancellationToken: cancellationToken);
-        await channel.QueueBindAsync(
-            _options.Queue,
-            _options.Exchange,
-            _options.RoutingKey,
-            cancellationToken: cancellationToken);
     }
 }
